@@ -20,6 +20,7 @@ package com.exactpro.th2.kafka.client
 import com.exactpro.cradle.BookId
 import com.exactpro.cradle.CradleStorage
 import com.exactpro.cradle.Direction
+import com.exactpro.cradle.PageToAdd
 import com.exactpro.cradle.Direction as CradleDirection
 import com.exactpro.cradle.counters.Interval
 import com.exactpro.cradle.filters.FilterForGreater
@@ -67,24 +68,43 @@ fun main(args: Array<String>) {
     runCatching {
         val msgMetaDir = args[2]
         val eventsMetaDir = args[3]
+        val (pagesCnt, pageLenMin) = if (args.size < 6) Pair(0, 0) else Pair(args[4].toInt(), args[5].toInt())
 
         val bookName = factory.boxConfiguration.bookName
         val storage = factory.cradleManager.storage
         val bookId = BookId(bookName)
 
+        createPages(storage, bookId, pagesCnt, pageLenMin)
         processMessagesCsvs(storage, bookId, msgMetaDir)
         processEventsCsvs(storage, bookId, eventsMetaDir)
+        factory.close()
     }.onFailure {
         LOGGER.error(it) { "Error during loading from Cradle" }
         exitProcess(2)
     }
 }
 
+private const val MINUTE_MS: Int = 60_000
+private const val REJECTION_THRESHOLD_SECONDS: Long = 60 * 60 * 24 * 365
+private const val REJECTION_THRESHOLD_MILLIS: Long = REJECTION_THRESHOLD_SECONDS * 1_000
+
+fun createPages(storage: CradleStorage, bookId: BookId, pagesCnt: Int, pageLenMin: Int) {
+    val pages = (0 until pagesCnt).map {
+        PageToAdd(
+            "autopage_$it",
+            Instant.ofEpochMilli(startMillis + it * pageLenMin * MINUTE_MS),
+            "test page"
+        )
+    }
+
+    storage.addPages(bookId, pages)
+}
+
 fun processCsvMessagesFile(storage: CradleStorage, bookId: BookId, filePath: Path) {
     val group = filePath.nameWithoutExtension
     val lines = Files.readAllLines(filePath)
 
-    var batch = GroupedMessageBatchToStore(group, Int.MAX_VALUE,  Long.MAX_VALUE)
+    var batch: GroupedMessageBatchToStore? = null
 
     var firstSequence = 0L
     var secondSequence = 0L
@@ -93,8 +113,11 @@ fun processCsvMessagesFile(storage: CradleStorage, bookId: BookId, filePath: Pat
         val values = line.split(",")
 
         if (values.size == 1) {
-            storage.storeGroupedMessageBatch(batch)
-            batch = GroupedMessageBatchToStore(group, Int.MAX_VALUE,  Long.MAX_VALUE)
+            if (batch !=null) {
+//                storage.storeGroupedMessageBatch(batch)
+            }
+            batch = GroupedMessageBatchToStore(group, Int.MAX_VALUE, REJECTION_THRESHOLD_SECONDS)
+
         } else {
             val timeOffsetMillis = values[0].toLong()
             val alias = "alias" + values[1]
@@ -122,7 +145,7 @@ fun processCsvMessagesFile(storage: CradleStorage, bookId: BookId, filePath: Pat
                 .timestamp(timestamp)
                 .build()
 
-            batch.addMessage(message)
+            batch!!.addMessage(message)
         }
     }
 }
@@ -180,7 +203,7 @@ fun processCsvEventsFile(storage: CradleStorage, bookId: BookId, filePath: Path)
 
             val id = StoredTestEventId(bookId, scope, startTime, uid)
 
-            val event = TestEventSingleToStore.builder(Long.MAX_VALUE)
+            val event = TestEventSingleToStore.builder(REJECTION_THRESHOLD_MILLIS)
                 .id(id)
                 .name(name)
                 .messages(messages)
@@ -262,7 +285,7 @@ fun loadMessages(storage: CradleStorage, bookId: BookId, from: Instant, to: Inst
 
 fun StoredTestEventId.trim() = this.toString().substringAfterLast(':')
 
-fun writeEvent(writer: BufferedWriter, event: TestEventSingle, fromMillis: Long) {
+fun writeEvent(writer: BufferedWriter, event: TestEventSingle, startMillis: Long) {
     val uid = event.id.id
     val nameLen = event.name.length
     val msgCnt = event.messages?.size ?: 0
@@ -272,13 +295,13 @@ fun writeEvent(writer: BufferedWriter, event: TestEventSingle, fromMillis: Long)
     val parentId = if (event.parentId == null) {
         "0"
     } else {
-        val parentTimestampOffset = event.parentId.startTimestamp.minusMillis(fromMillis)
+        val parentTimestampOffset = event.parentId.startTimestamp.minusMillis(startMillis)
         val parentTimestampOffsetNano = parentTimestampOffset.epochSecond * 1_000_000_000 + parentTimestampOffset.nano
         "${event.parentId.scope}:$parentTimestampOffsetNano:${event.parentId.id}"
     }
 
-    val startTimeOffsetNano = (event.startTimestamp.toEpochMilli() - fromMillis) * 1_000_000 + event.startTimestamp.nano % 1_000_000
-    val endTimeOffset = event.endTimestamp.toEpochMilli() - fromMillis
+    val startTimeOffsetNano = (event.startTimestamp.toEpochMilli() - startMillis) * 1_000_000 + event.startTimestamp.nano % 1_000_000
+    val endTimeOffset = event.endTimestamp.toEpochMilli() - startMillis
 
     writer.write("$uid,$nameLen,$msgCnt,$contentSize,$succeed,$parentId,$startTimeOffsetNano,$endTimeOffset\n")
 }
