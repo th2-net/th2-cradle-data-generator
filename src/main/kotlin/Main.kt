@@ -67,14 +67,21 @@ fun main(args: Array<String>) {
     runCatching {
         val msgMetaDir = args[2]
         val eventsMetaDir = args[3]
-        val (pagesCnt, pageLenMin) = if (args.size < 6) Pair(0, 0) else Pair(args[4].toInt(), args[5].toInt())
 
         val bookName = factory.boxConfiguration.bookName
         val storage = factory.cradleManager.storage
         val bookId = BookId(bookName)
 
-        createPages(storage, bookId, pagesCnt, pageLenMin)
+        if (args.size >= 6) {
+            val pagesCnt = args[4].toInt()
+            val pageLenMin = args[5].toInt()
+            LOGGER.info { "createPages" }
+            createPages(storage, bookId, pagesCnt, pageLenMin)
+        }
+
+        LOGGER.info { "processMessagesCsvs" }
         processMessagesCsvs(storage, bookId, msgMetaDir)
+        LOGGER.info { "processEventsCsvs" }
         processEventsCsvs(storage, bookId, eventsMetaDir)
         factory.close()
     }.onFailure {
