@@ -64,7 +64,6 @@ fun main(args: Array<String>) {
         CommonFactory()
     }.apply { resources += "factory" to ::close }
 
-
     runCatching {
         val msgMetaDir = args[2]
         val eventsMetaDir = args[3]
@@ -114,7 +113,7 @@ fun processCsvMessagesFile(storage: CradleStorage, bookId: BookId, filePath: Pat
 
         if (values.size == 1) {
             if (batch !=null) {
-//                storage.storeGroupedMessageBatch(batch)
+                storage.storeGroupedMessageBatch(batch)
             }
             batch = GroupedMessageBatchToStore(group, Int.MAX_VALUE, REJECTION_THRESHOLD_SECONDS)
 
@@ -162,21 +161,28 @@ fun processCsvEventsFile(storage: CradleStorage, bookId: BookId, filePath: Path)
 
     val batchBuilder = TestEventBatchToStoreBuilder(Int.MAX_VALUE, Long.MAX_VALUE)
     var batchCounter = 1
-
     var batch: TestEventBatchToStore? = null
 
     for (line in lines) {
         val values = line.split(",")
 
         if (values.size == 1) {
-            if (batch != null) {
+            if (values[0] == ".") {
                 storage.storeTestEvent(batch)
+                batch = null
+            } else {
+                val parentIdParts = values[0].split(':')
+                val parentScope = parentIdParts[0]
+                val parentTimestampNano = parentIdParts[1].toLong() + startNanos
+                val parentId = parentIdParts[2]
+
+                batch = batchBuilder
+                    .idRandom(bookId, parentScope)
+                    .parentId(StoredTestEventId(bookId, parentScope, Instant.ofEpochSecond(parentTimestampNano / 1_000_000_000, parentTimestampNano % 1_000_000_000), parentId))
+                    .type("batch")
+                    .name("batch_" + batchCounter++)
+                    .build()
             }
-            batch = batchBuilder
-                .idRandom(bookId, scope)
-                .type("batch")
-                .name("batch_" + batchCounter++)
-                .build()
         } else {
             val uid = values[0]
             val nameLen = values[1].toInt()
@@ -195,7 +201,7 @@ fun processCsvEventsFile(storage: CradleStorage, bookId: BookId, filePath: Path)
 
             val startTimestampNano = values[6].toLong() + startNanos
             val startTime = Instant.ofEpochSecond(startTimestampNano / 1_000_000_000, startTimestampNano % 1_000_000_000)
-            val endTime = Instant.ofEpochMilli(values[7].toLong() + startMillis)
+            val endTime = Instant.ofEpochMilli(values[7].toLong() + startMillis + 1)
 
             val name = generateRandomString(nameLen)
             val messages = dummyMessageIds.take(msgCnt).toSet()
@@ -213,7 +219,11 @@ fun processCsvEventsFile(storage: CradleStorage, bookId: BookId, filePath: Path)
                 .endTimestamp(endTime)
                 .build()
 
-            batch!!.addTestEvent(event)
+            if (batch != null) {
+                batch.addTestEvent(event)
+            } else {
+                storage.storeTestEvent(event)
+            }
         }
     }
 }
@@ -283,22 +293,22 @@ fun loadMessages(storage: CradleStorage, bookId: BookId, from: Instant, to: Inst
     }
 }
 
-fun StoredTestEventId.trim() = this.toString().substringAfterLast(':')
+fun parentIdToString(parentId: StoredTestEventId?, startMillis: Long, scopes: Map<String, Int>) = if (parentId == null) {
+    "0"
+} else {
+    val parentTimestampOffset = parentId.startTimestamp.minusMillis(startMillis)
+    val parentTimestampOffsetNano = parentTimestampOffset.epochSecond * 1_000_000_000 + parentTimestampOffset.nano
+    val parentScope = "scope${scopes[parentId.scope] ?: 0}"
+    "$parentScope:$parentTimestampOffsetNano:${parentId.id}"
+}
 
-fun writeEvent(writer: BufferedWriter, event: TestEventSingle, startMillis: Long) {
+fun writeEvent(writer: BufferedWriter, event: TestEventSingle, startMillis: Long, scopes: Map<String, Int>) {
     val uid = event.id.id
     val nameLen = event.name.length
     val msgCnt = event.messages?.size ?: 0
     val contentSize = event.content.size
     val succeed = if (event.isSuccess) 1 else 0
-
-    val parentId = if (event.parentId == null) {
-        "0"
-    } else {
-        val parentTimestampOffset = event.parentId.startTimestamp.minusMillis(startMillis)
-        val parentTimestampOffsetNano = parentTimestampOffset.epochSecond * 1_000_000_000 + parentTimestampOffset.nano
-        "${event.parentId.scope}:$parentTimestampOffsetNano:${event.parentId.id}"
-    }
+    val parentId = parentIdToString(event.parentId, startMillis, scopes)
 
     val startTimeOffsetNano = (event.startTimestamp.toEpochMilli() - startMillis) * 1_000_000 + event.startTimestamp.nano % 1_000_000
     val endTimeOffset = event.endTimestamp.toEpochMilli() - startMillis
@@ -323,14 +333,15 @@ fun loadEvents(storage: CradleStorage, bookId: BookId, from: Instant, to: Instan
             for (event in events) {
                 if (event.isBatch) {
                     val eventBatch = event.asBatch()
-                    val lastStartOffset = eventBatch.lastStartTimestamp.toEpochMilli() - fromMillis
-                    writer.write("${eventBatch.id.trim()},$lastStartOffset\n") // batch start
+                    val parentIdString = parentIdToString(event.parentId, fromMillis, scopes)
+                    writer.write(parentIdString) // batch start
+                    writer.newLine()
                     for (eventSingle in eventBatch.testEvents) {
-                        writeEvent(writer, eventSingle, fromMillis)
+                        writeEvent(writer, eventSingle, fromMillis, scopes)
                     }
                     writer.write(".\n") // batch end
                 } else {
-                    writeEvent(writer, event.asSingle(), fromMillis)
+                    writeEvent(writer, event.asSingle(), fromMillis, scopes)
                 }
             }
         }
