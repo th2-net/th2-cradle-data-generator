@@ -43,7 +43,7 @@ dependencies {
 
 application {
     applicationName = 'th2-cradle-data-generator'
-    mainClass.set("com.exactpro.th2.tools.MainKt")
+    mainClass.set("com.exactpro.th2.tools.Main")
 }
 
 test.useJUnitPlatform()

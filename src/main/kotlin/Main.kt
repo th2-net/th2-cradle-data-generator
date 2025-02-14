@@ -15,7 +15,7 @@
 
 @file:JvmName("Main")
 
-package com.exactpro.th2.kafka.client
+package com.exactpro.th2.tools
 
 import com.exactpro.cradle.BookId
 import com.exactpro.cradle.CradleStorage
