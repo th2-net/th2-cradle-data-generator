@@ -1,0 +1,31 @@
+name: Build project
+
+on:
+  push:
+    paths-ignore:
+      - README.md
+
+jobs:
+  scan:
+    uses: th2-net/.github/.github/workflows/compound-java-scan.yml@main
+    secrets:
+      nvd-api-key: ${{ secrets.NVD_APIKEY }}
+      cisa-domain: ${{ secrets.CISA_DOMAIN }}
+      cisa-user: ${{ secrets.CISA_USER }}
+      cisa-password: ${{ secrets.CISA_PWD }}
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 11
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
+      - name: Release Build with Gradle
+        run: ./gradlew clean build
