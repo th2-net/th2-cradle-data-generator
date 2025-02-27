@@ -1,0 +1,17 @@
+[versions]
+th2-plugin = "0.2.3"
+kotlin = "1.8.22"
+
+[libraries]
+th2-common = { group = "com.exactpro.th2", name = "common", version = "5.14.0-dev" }
+th2-common-utils = { group = "com.exactpro.th2", name = "common-utils", version = "2.3.0-dev" }
+th2-mstore = { group = "com.exactpro.th2", name = "mstore", version = "5.10.0-TH2-5267-13565308850-06f26d4-SNAPSHOT" }
+th2-estore = { group = "com.exactpro.th2", name = "estore", version = "5.9.0-TH2-5267-13565500024-8a97f7d-SNAPSHOT" }
+
+jackson-bom = { group = "com.fasterxml.jackson", name = "jackson-bom", version = "2.18.2" }
+kotlin-logging = { group = "io.github.oshai", name = "kotlin-logging-jvm", version = "5.1.4" }
+clikt = { group = "com.github.ajalt.clikt", name = "clikt", version = "4.0.0" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+th2-component = { id = "com.exactpro.th2.gradle.component", version.ref = "th2-plugin" }

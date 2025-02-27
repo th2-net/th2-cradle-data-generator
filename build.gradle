@@ -1,9 +1,7 @@
 plugins {
     id 'application'
-    id 'org.jetbrains.kotlin.jvm' version '1.8.22'
-    id 'com.exactpro.th2.gradle.component' version '0.1.8'
-    id 'com.exactpro.th2.gradle.publish' version '0.1.8'
-    id 'maven-publish'
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.th2.component)
 }
 
 group 'com.exactpro.th2'
@@ -29,21 +27,24 @@ repositories {
 }
 
 dependencies {
-    api platform("com.exactpro.th2:bom:4.9.0")
-    implementation "com.exactpro.th2:common:5.14.0-dev"
-    implementation "com.fasterxml.jackson.core:jackson-core:$jackson_version"
-    implementation "com.fasterxml.jackson.core:jackson-databind:$jackson_version"
-    implementation "com.fasterxml.jackson.module:jackson-module-kotlin:$jackson_version"
-    implementation "com.github.ajalt.clikt:clikt:4.0.0"
-
-    implementation 'io.github.oshai:kotlin-logging-jvm:7.0.3'
+    implementation(libs.th2.common)
+    implementation(libs.th2.common.utils)
+    implementation(libs.th2.mstore)
+    implementation(libs.th2.estore)
+    implementation "org.slf4j:slf4j-api"
+    implementation(platform(libs.jackson.bom))
+    implementation "com.fasterxml.jackson.core:jackson-core"
+    implementation "com.fasterxml.jackson.core:jackson-databind"
+    implementation "com.fasterxml.jackson.module:jackson-module-kotlin"
+    implementation(libs.clikt)
+    implementation(libs.kotlin.logging)
 
     testImplementation "org.jetbrains.kotlin:kotlin-test"
 }
 
 application {
     applicationName = 'th2-cradle-data-generator'
-    mainClass.set("com.exactpro.th2.tools.Main")
+    mainClass.set("com.exactpro.cradle.generator.GeneratorKt")
 }
 
 test.useJUnitPlatform()
