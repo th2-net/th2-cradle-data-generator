@@ -28,6 +28,8 @@ import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
+import java.time.Instant
+import java.util.concurrent.TimeUnit.SECONDS
 import kotlin.io.path.absolutePathString
 import kotlin.system.exitProcess
 
@@ -62,8 +64,7 @@ class Generator : CliktCommand() {
             val bookName = factory.boxConfiguration.bookName
             val storage: CradleStorage = factory.cradleManager.storage
             val bookId = BookId(bookName)
-            val startNanos: Long = System.nanoTime()
-            val startMillis = startNanos / 1_000_000L
+            val startNanos: Long = Instant.now().run { epochSecond * SECONDS.toNanos(1) + nano }
 
             if (pagesCount > 0) {
                 LOGGER.info { "createPages" }
@@ -71,7 +72,7 @@ class Generator : CliktCommand() {
                     bookId,
                     pagesCount,
                     pageLenMin,
-                    startMillis = startMillis,
+                    startMillis = startNanos / 1_000_000,
                 ))
             }
 
@@ -80,7 +81,7 @@ class Generator : CliktCommand() {
                 generateMessages(storage, MessageGeneratorSettings(
                     directoryPath = it,
                     bookId = bookId,
-                    startMillis = startMillis,
+                    startNanos = startNanos,
                 ))
             }
             eventsMetadataDir?.let {
@@ -89,7 +90,6 @@ class Generator : CliktCommand() {
                     directoryPath = it,
                     bookId = bookId,
                     startNanos = startNanos,
-                    startMillis = startMillis,
                 ))
             }
             shutdownManager.closeResources()
@@ -99,6 +99,14 @@ class Generator : CliktCommand() {
             exitProcess(2)
         }
     }
+}
+
+open class GeneratorSettings(
+    val directoryPath: Path,
+    val bookId: BookId,
+    val startNanos: Long = System.nanoTime(),
+) {
+    val startMillis = startNanos / 1_000_000L
 }
 
 fun main(args: Array<String>) = Generator().main(args)

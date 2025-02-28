@@ -40,6 +40,7 @@ import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.time.Instant
+import kotlin.io.path.extension
 import kotlin.io.path.nameWithoutExtension
 import kotlin.random.Random
 
@@ -59,7 +60,7 @@ fun generateEvents(storage: CradleStorage, config: EventGeneratorSettings) {
 
         if (Files.exists(config.directoryPath) && Files.isDirectory(config.directoryPath)) {
             Files.list(config.directoryPath).forEach { file ->
-                if (Files.isRegularFile(file) && file.toString().endsWith(".csv")) {
+                if (Files.isRegularFile(file) && file.extension == "csv") {
                     processCsvEventsFile(storage, config, dummyMessageIds, file)
                 }
             }
@@ -223,13 +224,12 @@ private fun StoredTestEventId?.toString(startMillis: Long, scopes: Map<String, I
 } ?: "0"
 
 class EventGeneratorSettings(
-    val directoryPath: Path,
-    val bookId: BookId,
+    directoryPath: Path,
+    bookId: BookId,
+    startNanos: Long,
     val sessionAlias: String = "alias_00",
-    val startNanos: Long = System.nanoTime(),
-    val startMillis: Long = startNanos / 1_000_000L,
     val rejectionThresholdMillis: Long = 1_000 * 60 * 60 * 24 * 365,
-)
+): GeneratorSettings(directoryPath, bookId, startNanos)
 
 private object EventErrorCollector: ErrorCollector {
     override fun init(

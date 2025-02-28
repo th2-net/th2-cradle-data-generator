@@ -39,6 +39,7 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.io.path.extension
 import kotlin.io.path.nameWithoutExtension
 import kotlin.random.Random
 
@@ -53,7 +54,7 @@ fun generateMessages(storage: CradleStorage, config: MessageGeneratorSettings) {
     ).also { it.start() }.use { persistor ->
         if (Files.exists(config.directoryPath) && Files.isDirectory(config.directoryPath)) {
             Files.list(config.directoryPath).forEach { file ->
-                if (Files.isRegularFile(file) && file.toString().endsWith(".csv")) {
+                if (Files.isRegularFile(file) && file.extension == ".csv") {
                     processCsvMessagesFile(persistor, config, file)
                 }
             }
@@ -95,15 +96,15 @@ fun loadMessages(storage: CradleStorage, bookId: BookId, from: Instant, to: Inst
 
 private fun processCsvMessagesFile(persistor: MessagePersistor, config: MessageGeneratorSettings, filePath: Path) {
     val group = filePath.nameWithoutExtension
-    val lines = Files.readAllLines(filePath)
+    val lines = Files.readAllLines(filePath) // TODO: read line by line
 
     var batch: GroupedMessageBatchToStore? = null
 
-    var firstSequence = 0L
-    var secondSequence = 0L
+    var firstSequence = config.startNanos
+    var secondSequence = config.startNanos
 
     for (line in lines) {
-        val values = line.split(",")
+        val values = line.split(",") // TODO: use csv reader
 
         if (values.size == 1) {
             if (batch != null) {
@@ -173,12 +174,12 @@ private fun generateFixMessage(config: MessageGeneratorSettings, sequence: Long,
 private fun calculateFixMessageChecksum(message: String): Int = message.toByteArray(Charsets.US_ASCII).sum() % 256
 
 class MessageGeneratorSettings(
-    val directoryPath: Path,
-    val bookId: BookId,
+    directoryPath: Path,
+    bookId: BookId,
+    startNanos: Long,
     val lagMillis: Long = 300L,
-    val startMillis: Long = System.currentTimeMillis(),
     val rejectionThresholdSeconds: Long = 60 * 60 * 24 * 365,
-)
+): GeneratorSettings(directoryPath, bookId, startNanos)
 
 private object MessageCallBack : Callback<GroupedMessageBatchToStore> {
     @Volatile
@@ -199,7 +200,7 @@ private object MessageCallBack : Callback<GroupedMessageBatchToStore> {
     }
 
     override fun onFail(p0: GroupedMessageBatchToStore) {
-        LOGGER.error { "Failure storing group batch ${p0.bookId.name}:${p0.group} with ${p0.messages.size} item / ${p0.batchSize} bytes" }
+        LOGGER.error { "Failure storing group batch ${p0.bookId.name}:${p0.group} with ${p0.messages.size} messages / ${p0.batchSize} bytes" }
     }
 
     override fun toString(): String {
