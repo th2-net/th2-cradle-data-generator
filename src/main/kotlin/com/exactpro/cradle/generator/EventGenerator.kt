@@ -32,6 +32,7 @@ import com.exactpro.th2.estore.Configuration
 import com.exactpro.th2.estore.EventPersistor
 import com.exactpro.th2.estore.ErrorCollector
 import com.exactpro.th2.estore.Persistor
+import com.exactpro.th2.estore.Callback
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.BufferedWriter
 import java.io.File
@@ -40,6 +41,7 @@ import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.extension
 import kotlin.io.path.nameWithoutExtension
 import kotlin.random.Random
@@ -61,7 +63,7 @@ fun generateEvents(storage: CradleStorage, config: EventGeneratorSettings) {
         if (Files.exists(config.directoryPath) && Files.isDirectory(config.directoryPath)) {
             Files.list(config.directoryPath).forEach { file ->
                 if (Files.isRegularFile(file) && file.extension == "csv") {
-                    processCsvEventsFile(storage, config, dummyMessageIds, file)
+                    processCsvEventsFile(persistor, config, dummyMessageIds, file)
                 }
             }
         } else {
@@ -105,7 +107,7 @@ fun loadEvents(storage: CradleStorage, bookId: BookId, from: Instant, to: Instan
 }
 
 private fun processCsvEventsFile(
-    storage: CradleStorage,
+    persistor: EventPersistor,
     config: EventGeneratorSettings,
     dummyMessageIds: List<StoredMessageId>,
     filePath: Path
@@ -122,7 +124,7 @@ private fun processCsvEventsFile(
 
         if (values.size == 1) {
             if (values[0] == ".") {
-                storage.storeTestEvent(batch)
+                persistor.persist(batch, EventCallBack)
                 batch = null
             } else {
                 val parentIdParts = values[0].split(':')
@@ -202,7 +204,7 @@ private fun processCsvEventsFile(
             if (batch != null) {
                 batch.addTestEvent(event)
             } else {
-                storage.storeTestEvent(event)
+                persistor.persist(event, EventCallBack)
             }
         }
     }
@@ -240,6 +242,33 @@ class EventGeneratorSettings(
     val sessionAlias: String = "alias_00",
     val rejectionThresholdMillis: Long = 1_000 * 60 * 60 * 24 * 365,
 ): GeneratorSettings(directoryPath, bookId, startNanos)
+
+private object EventCallBack : Callback<TestEventToStore> {
+    @Volatile
+    private var previousCount = 0L
+    private val count = AtomicLong(0)
+    private val size = AtomicLong(0)
+
+    override fun onSuccess(p0: TestEventToStore) {
+        val count = if (p0.isBatch) p0.asBatch().testEventsCount else 1
+        val size = if (p0.isBatch) p0.asBatch().batchSize else p0.asSingle().content.size
+        val currentCount = this.count.addAndGet(count.toLong())
+        this.size.addAndGet(size.toLong())
+        LOGGER.trace { "Stored batch ${p0.bookId.name}:${p0.scope} with $count items / $size bytes" }
+        if (currentCount - previousCount > 100_000L) {
+            previousCount = currentCount
+            LOGGER.info { "Stored events $this" }
+        }
+    }
+
+    override fun onFail(p0: TestEventToStore) {
+        LOGGER.error { "Failure storing batch ${p0.bookId.name}:${p0.scope} with ${if (p0.isBatch) p0.asBatch().testEventsCount else 1} events / ${if (p0.isBatch) p0.asBatch().batchSize else p0.asSingle().content.size} bytes" }
+    }
+
+    override fun toString(): String {
+        return "total count: ${count.get()}, size: ${size.get()}"
+    }
+}
 
 private object EventErrorCollector: ErrorCollector {
     override fun init(
