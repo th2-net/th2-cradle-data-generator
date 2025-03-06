@@ -153,12 +153,14 @@ private fun processCsvEventsFile(
             val msgCnt = values[2].toInt()
             val contentSize = values[3].toInt()
             val succeed = values[4].toInt() != 0
-
             val parentIdString = values[5]
+            val relatedStartTimeNano = values[6].toLong()
+            val relatedEndTimeMillis = values[7].toLong()
+
             val parentId = if (parentIdString == "0") {
                 null
             } else {
-                val parentIdParts = values[5].split(':')
+                val parentIdParts = parentIdString.split(':')
                 val parentTimestampNano = parentIdParts[1].toLong() + config.startNanos
                 StoredTestEventId(
                     config.bookId,
@@ -168,10 +170,18 @@ private fun processCsvEventsFile(
                 )
             }
 
-            val startTimestampNano = values[6].toLong() + config.startNanos
-            val startTime =
-                Instant.ofEpochSecond(startTimestampNano / 1_000_000_000, startTimestampNano % 1_000_000_000)
-            val endTime = Instant.ofEpochMilli(values[7].toLong() + config.startMillis + 1)
+
+            val startTime = (relatedStartTimeNano + config.startNanos).run {
+                Instant.ofEpochSecond(this / 1_000_000_000, this % 1_000_000_000)
+            }
+            val endTime = Instant.ofEpochMilli(relatedEndTimeMillis + config.startMillis).run {
+                if (this < startTime) {
+                    LOGGER.warn { "'$startTime' start can't be grater than '$this' end timestamp, orig start: '$relatedStartTimeNano' nano, orig end: '$relatedEndTimeMillis' millis" }
+                    startTime
+                } else {
+                    this
+                }
+            }
 
             val name = generateRandomString(nameLen)
             val messages = dummyMessageIds.take(msgCnt).toSet()
